@@ -16,6 +16,7 @@ function App() {
     category: "",
     brand: "",
   });
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -51,12 +52,15 @@ function App() {
     });
   };
 
-  const updateQuantity = (id, delta) => {
+  const updateQuantity = (id, isAdding) => {
+    const amount = parseInt(prompt(`Enter quantity to ${isAdding ? "add" : "remove"}:`));
+    if (isNaN(amount) || amount <= 0) return;
+
     const updated = products.map((p) =>
       p.productId === id
         ? {
             ...p,
-            quantity: Math.max(0, p.quantity + delta),
+            quantity: Math.max(0, p.quantity + (isAdding ? amount : -amount)),
             lastUpdated: new Date().toISOString(),
           }
         : p
@@ -75,9 +79,25 @@ function App() {
     saveAs(blob, "inventory.csv");
   };
 
+  const filteredProducts = products.filter(
+    (p) =>
+      p.productId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.productName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="App" style={{ padding: "2rem", maxWidth: 900, margin: "auto" }}>
       <h2>🧾 Clothing Inventory Manager</h2>
+
+      <div style={{ marginBottom: 20 }}>
+        <input
+          placeholder="🔍 Search by ID or Name"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{ width: "100%", padding: 8 }}
+        />
+      </div>
+
       <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
         {[
           "productId",
@@ -125,7 +145,7 @@ function App() {
           </tr>
         </thead>
         <tbody>
-          {products.map((p) => (
+          {filteredProducts.map((p) => (
             <tr key={p.productId}>
               <td>{p.productId}</td>
               <td>{p.productName}</td>
@@ -137,8 +157,8 @@ function App() {
               <td>{p.brand}</td>
               <td>{new Date(p.lastUpdated).toLocaleString()}</td>
               <td>
-                <button onClick={() => updateQuantity(p.productId, 1)}>+</button>
-                <button onClick={() => updateQuantity(p.productId, -1)}>-</button>
+                <button onClick={() => updateQuantity(p.productId, true)}>+</button>
+                <button onClick={() => updateQuantity(p.productId, false)}>-</button>
               </td>
             </tr>
           ))}
