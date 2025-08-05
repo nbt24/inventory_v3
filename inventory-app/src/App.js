@@ -1,8 +1,11 @@
+
 import React, { useState, useEffect } from "react";
 import "./App.css";
-import saveAs from "file-saver";
 
-const STORAGE_KEY = "inventory_data";
+
+// SheetBest API endpoint
+const SHEETBEST_URL = "https://api.sheetbest.com/sheets/f447a911-6ca1-4fa3-9743-d297133671a4";
+
 
 function App() {
   const [products, setProducts] = useState([]);
@@ -17,77 +20,126 @@ function App() {
     brand: "",
   });
   const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Fetch products from SheetBest
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(SHEETBEST_URL);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const items = data.map((row) => ({
+          ...row,
+          quantity: parseInt(row.quantity) || 0,
+        }));
+        setProducts(items);
+      } else {
+        setProducts([]);
+      }
+    } catch (e) {
+      alert("Failed to fetch products from SheetBest.");
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) setProducts(JSON.parse(saved));
+    fetchProducts();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-  }, [products]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm({ ...form, [name]: value });
   };
 
-  const handleAddProduct = () => {
+  // Add product to SheetBest
+  const handleAddProduct = async () => {
     if (!form.productId || !form.productName) return;
     const newProduct = {
       ...form,
       quantity: parseInt(form.quantity),
       lastUpdated: new Date().toISOString(),
     };
-    setProducts([...products, newProduct]);
-    setForm({
-      productId: "",
-      productName: "",
-      size: "",
-      color: "",
-      quantity: 0,
-      price: "",
-      category: "",
-      brand: "",
-    });
+    setLoading(true);
+    try {
+      await fetch(SHEETBEST_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newProduct),
+      });
+      setForm({
+        productId: "",
+        productName: "",
+        size: "",
+        color: "",
+        quantity: 0,
+        price: "",
+        category: "",
+        brand: "",
+      });
+      await fetchProducts(); // Refetch after add
+    } catch (e) {
+      alert("Failed to add product to SheetBest.");
+    }
+    setLoading(false);
   };
 
-  const updateQuantity = (id, isAdding) => {
+  // Update quantity in SheetBest
+  const updateQuantity = async (id, isAdding) => {
     const amount = parseInt(prompt(`Enter quantity to ${isAdding ? "add" : "remove"}:`));
     if (isNaN(amount) || amount <= 0) return;
-
-    const updated = products.map((p) =>
-      p.productId === id
-        ? {
-            ...p,
-            quantity: Math.max(0, p.quantity + (isAdding ? amount : -amount)),
-            lastUpdated: new Date().toISOString(),
-          }
-        : p
-    );
-    setProducts(updated);
+    setLoading(true);
+    try {
+      const idx = products.findIndex((p) => p.productId === id);
+      if (idx === -1) return;
+      const updatedProduct = {
+        ...products[idx],
+        quantity: Math.max(0, products[idx].quantity + (isAdding ? amount : -amount)),
+        lastUpdated: new Date().toISOString(),
+      };
+      await fetch(`${SHEETBEST_URL}/productId/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedProduct),
+      });
+      await fetchProducts(); // Refetch after update
+    } catch (e) {
+      alert("Failed to update product in SheetBest.");
+    }
+    setLoading(false);
   };
-
+  // Download products as CSV
   const downloadCSV = () => {
-    if (products.length === 0) return;
+    if (!products.length) return;
     const header = Object.keys(products[0]).join(",");
     const rows = products
       .map((p) => Object.values(p).map((v) => `"${v}"`).join(","))
       .join("\n");
     const csv = `${header}\n${rows}`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, "inventory.csv");
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "inventory.csv";
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
+
   const filteredProducts = products.filter(
-    (p) =>
-      p.productId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.productName.toLowerCase().includes(searchQuery.toLowerCase())
+    (p) => {
+      const id = p.productId ? p.productId.toLowerCase() : "";
+      const name = p.productName ? p.productName.toLowerCase() : "";
+      const query = searchQuery.toLowerCase();
+      return id.includes(query) || name.includes(query);
+    }
   );
+
 
   return (
     <div className="App" style={{ padding: "2rem", maxWidth: 900, margin: "auto" }}>
-      <h2>🧾 Clothing Inventory Manager</h2>
+      <h2>🧾 Clothing Inventory Manager (Google Sheets Sync)</h2>
 
       <div style={{ marginBottom: 20 }}>
         <input
@@ -117,13 +169,16 @@ function App() {
             onChange={handleChange}
           />
         ))}
-        <button onClick={handleAddProduct}>Add Product</button>
+        <button onClick={handleAddProduct} disabled={loading}>
+          {loading ? "Adding..." : "Add Product"}
+        </button>
       </div>
 
       <h3>📦 Product Inventory</h3>
-      <button onClick={downloadCSV} disabled={!products.length}>
-        Download CSV
+      <button onClick={downloadCSV} disabled={!products.length || loading} style={{ marginBottom: 10 }}>
+        Download Sheet as CSV
       </button>
+      {loading && <div>Loading...</div>}
 
       <table border="1" cellPadding="6" style={{ width: "100%", marginTop: 20 }}>
         <thead>
@@ -157,8 +212,8 @@ function App() {
               <td>{p.brand}</td>
               <td>{new Date(p.lastUpdated).toLocaleString()}</td>
               <td>
-                <button onClick={() => updateQuantity(p.productId, true)}>+</button>
-                <button onClick={() => updateQuantity(p.productId, false)}>-</button>
+                <button onClick={() => updateQuantity(p.productId, true)} disabled={loading}>+</button>
+                <button onClick={() => updateQuantity(p.productId, false)} disabled={loading}>-</button>
               </td>
             </tr>
           ))}
